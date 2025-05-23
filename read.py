@@ -3,7 +3,7 @@ import os
 import time
 
 # Define el filepath - ajusta esto a la ubicación de tu archivo
-filepath = '/Users/juliandiazparra/Library/CloudStorage/GoogleDrive-juliandp@madanalytica.com/.shortcut-targets-by-id/1-Q0tRpY6LLjvh4cZeZWt2DLY2Scu6Kml/Buenos Negocios Studio/Data/ACCESOS_INTERNET_FIJO_3_15.csv'
+filepath = 'data_ISPs/ACCESOS_INTERNET_FIJO_3_15.csv'
 
 df = pd.read_csv(
     filepath,
@@ -19,110 +19,123 @@ print(df.describe())
 print(df.isnull().sum())
 print(df.duplicated().sum())
 
-# Agrupar datos por empresa, año y trimestre
-df_grouped = df.groupby(['ID_EMPRESA', 'ANNO', 'TRIMESTRE'])['ACCESOS'].sum().reset_index()
+#Agrupar datos por empresa, municipio, año y trimestre
+#Qué tecnologías son relevantes?
+df['TECNOLOGIA'].value_counts()
+#Qué tipos de clientes hay?
+df['SEGMENTO'].value_counts()
 
-# Obtener las 20 empresas con más accesos totales
-top_20_empresas = df_grouped.groupby('ID_EMPRESA')['ACCESOS'].sum().nlargest(20).index
+# Creo grupos de tecnologías
+mapeo_tecnologias = {
+    'Fiber to the home (FTTH)': 'Fibra avanzada',
+    'Otras tecnologías de fibra (antes FTTx)': 'Fibra avanzada', 
+    'Fiber to the building o fiber to the basement (FTTB)': 'Fibra avanzada',
+    'Fiber to the premises': 'Fibra avanzada',
+    'Fiber to the cabinet (FTTC)': 'Fibra avanzada',
+    'Fiber to the node (FTTN)': 'Fibra avanzada',
+    'Fiber to the antenna (FTTA)': 'Fibra avanzada',
+    'Cable': 'Cable-HFC',
+    'Hybrid Fiber Coaxial (HFC)': 'Cable-HFC',
+    'xDSL': 'xDSL',
+    'Otras tecnologías inalámbricas': 'Inalámbricas',
+    'WiFi': 'Inalámbricas',
+    'WiMAX': 'Inalámbricas',
+    'Satelital': 'Satelital'
+}
 
-# Filtrar solo las 20 empresas principales
-df_top20 = df_grouped[df_grouped['ID_EMPRESA'].isin(top_20_empresas)]
+# Crear variables: grupo_segmento: residencial(todos los estratos y sin estratificar), corporativo. Estrato: bajo (1,2), medio (3,4), alto (5,6).
+mapeo_segmentos = {
+    'Corporativo': 'corporativo',
+    'Corporativo  (accesos adicionales)': 'corporativo',
+    'Uso propio interno del operador': 'NA',
+    'Residencial - Estrato 1': 'residencial',
+    'Residencial - Estrato 2': 'residencial',
+    'Residencial - Estrato 3': 'residencial',
+    'Residencial - Estrato 4': 'residencial',
+    'Residencial - Estrato 5': 'residencial',
+    'Residencial - Estrato 6': 'residencial',
+    'Sin estratificar': 'residencial'
+}
 
-# Crear un período temporal combinando año y trimestre
-df_top20['Periodo'] = df_top20['ANNO'].astype(str) + '-T' + df_top20['TRIMESTRE'].astype(str)
-df_top20.head()
-# Crear la gráfica
-import matplotlib.pyplot as plt
+mapeo_estratos = {
+    'Residencial - Estrato 1': 'bajo',
+    'Residencial - Estrato 2': 'bajo',
+    'Residencial - Estrato 3': 'medio',
+    'Residencial - Estrato 4': 'medio',
+    'Residencial - Estrato 5': 'alto',
+    'Residencial - Estrato 6': 'alto',
+    'Sin estratificar': 'sin_estrato',
+    'Corporativo': 'no_aplica',
+    'Corporativo  (accesos adicionales)': 'no_aplica',
+    'Uso propio interno del operador': 'no_aplica'
+}
 
-plt.figure(figsize=(15, 8))
+# Crear nueva columna con los grupos de tecnologías
+df['grupo_tecnologia'] = df['TECNOLOGIA'].map(mapeo_tecnologias)
+#Creo columna grupo_segmento y grupo_estrato
+df['grupo_segmento'] = df['SEGMENTO'].map(mapeo_segmentos)
+df['grupo_estrato'] = df['SEGMENTO'].map(mapeo_estratos)
 
-# Graficar una línea para cada empresa
-for empresa in top_20_empresas:
-    data = df_top20[df_top20['ID_EMPRESA'] == empresa]
-    plt.plot(data['Periodo'], data['ACCESOS'], label=empresa, marker='o')
+# Mostrar las distribuciones de los nuevos grupos
+print("\nDistribución por grupo de segmento:")
+print(df['grupo_segmento'].value_counts())
+print("\nDistribución por grupo de estrato:")
+print(df['grupo_estrato'].value_counts())
+# Mostrar el conteo de accesos por grupo de tecnología
+print("\nDistribución de accesos por grupo de tecnología:")
+print(df['grupo_tecnologia'].value_counts())
 
-plt.title('Evolución de Accesos por Empresa (Top 20)')
-plt.xlabel('Período (Año-Trimestre)')
-plt.ylabel('Número de Accesos')
-plt.xticks(rotation=45)
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.grid(True)
-plt.tight_layout()
-plt.show()
+# Asegurar que ID_EMPRESA sea tratado como string
+df['ID_EMPRESA'] = df['ID_EMPRESA'].astype(str)
+# Convertir las comas a puntos y luego a numérico
+df['VELOCIDAD_EFECTIVA_DOWNSTREAM'] = df['VELOCIDAD_EFECTIVA_DOWNSTREAM'].str.replace(',', '.').astype(float)
+df['VELOCIDAD_EFECTIVA_UPSTREAM'] = df['VELOCIDAD_EFECTIVA_UPSTREAM'].str.replace(',', '.').astype(float)
+
+# Agrupar datos por empresa, año y trimestre, grupo_segmento, grupo_estrato, grupo_tecnologia
+df_grouped = df.groupby(['ID_EMPRESA', 'EMPRESA', 'ANNO', 'TRIMESTRE', 
+                         'ID_MUNICIPIO', 'MUNICIPIO', 'ID_DEPARTAMENTO', 'DEPARTAMENTO',
+                        'grupo_segmento', 'grupo_estrato', 'grupo_tecnologia']).agg(
+                            accesos=('ACCESOS', 'sum'),
+                            velocidad_bajada=('VELOCIDAD_EFECTIVA_DOWNSTREAM', lambda x: x.mean(numeric_only=True)),
+                            velocidad_subida=('VELOCIDAD_EFECTIVA_UPSTREAM', lambda x: x.mean(numeric_only=True))).reset_index()
 
 
-# Obtener el total de accesos por empresa
-accesos_por_empresa = df_grouped.groupby('ID_EMPRESA')['ACCESOS'].sum()
+#Guardo esta base
+df_grouped.to_csv('data_ISPs/base_accesos_empresasxQxmpio.csv', index=False)
 
-# Filtrar empresas entre 1000 y 20000 accesos
-empresas_filtradas = accesos_por_empresa[(accesos_por_empresa >= 1000) & (accesos_por_empresa <= 20000)].index
+#Excluyamos accesos no relevantes
+mask_no_relevantes = df_grouped['grupo_segmento']!='NA'
+df_empresa_mpio_trim = df_grouped.loc[
+    mask_no_relevantes].groupby(['ID_EMPRESA', 'EMPRESA',
+                                 'ANNO', 'TRIMESTRE',
+                                 'ID_MUNICIPIO','MUNICIPIO',
+                                 'ID_DEPARTAMENTO','DEPARTAMENTO']).agg(
+                        num_accesos=('accesos', 'sum'),
+                        velocidad_subida=('velocidad_subida', 'mean'),
+                        velocidad_bajada=('velocidad_bajada', 'mean')).reset_index()
 
-# Filtrar el dataframe para estas empresas
-df_filtrado = df_grouped[df_grouped['ID_EMPRESA'].isin(empresas_filtradas)]
+#Ordeno por empresa, municipio, año y trimestre
+df_empresa_mpio_trim = df_empresa_mpio_trim.sort_values(
+    by=['ID_EMPRESA', 'EMPRESA', 
+        'ID_MUNICIPIO', 'MUNICIPIO', 
+        'ID_DEPARTAMENTO', 'DEPARTAMENTO',
+        'ANNO', 'TRIMESTRE'])
+#Calculo variación de accesos y tasa de variación
+df_empresa_mpio_trim['variacion_accesos'] = df_empresa_mpio_trim.groupby(
+    ['ID_EMPRESA', 'ID_MUNICIPIO'])['num_accesos'].diff()
+# Agregar tasa de variación (%)
+df_empresa_mpio_trim['tasa_variacion'] = (
+    df_empresa_mpio_trim['variacion_accesos'] / 
+    df_empresa_mpio_trim.groupby(['ID_EMPRESA', 'ID_MUNICIPIO'])['num_accesos'].shift(1)
+)
 
-# Crear período temporal
-df_filtrado['Periodo'] = df_filtrado['ANNO'].astype(str) + '-T' + df_filtrado['TRIMESTRE'].astype(str)
+df_empresa_mpio_trim.loc[df_empresa_mpio_trim['ID_EMPRESA']=='901448700', 
+                         ['ANNO','TRIMESTRE','EMPRESA','num_accesos',
+                          'variacion_accesos','tasa_variacion']]
 
-# Crear la gráfica
-plt.figure(figsize=(15, 8))
+df_empresa_mpio_trim.loc[df_empresa_mpio_trim['EMPRESA'].str.contains('ISPA'), 
+                         ['ANNO','TRIMESTRE','EMPRESA','MUNICIPIO','num_accesos',
+                          'variacion_accesos','tasa_variacion']]
 
-# Graficar una línea para cada empresa
-for empresa in empresas_filtradas:
-    data = df_filtrado[df_filtrado['ID_EMPRESA'] == empresa]
-    plt.plot(data['Periodo'], data['ACCESOS'], label=empresa, marker='o')
-
-plt.title('Evolución de Accesos por Empresa (Entre 1000 y 20000 accesos totales)')
-plt.xlabel('Período (Año-Trimestre)')
-plt.ylabel('Número de Accesos')
-plt.xticks(rotation=45)
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
-# Agrupar por empresa, municipio, año y trimestre
-df_empresa_mpio_trim = df.groupby(['ID_EMPRESA', 'ID_MUNICIPIO', 'ANNO', 'TRIMESTRE'])['ACCESOS'].sum().reset_index()
-
-# Ordenar para calcular correctamente la variación
-df_empresa_mpio_trim = df_empresa_mpio_trim.sort_values(['ID_EMPRESA', 'ID_MUNICIPIO', 'ANNO', 'TRIMESTRE'])
-
-# Calcular la variación de accesos
-df_empresa_mpio_trim['variacion_accesos'] = df_empresa_mpio_trim.groupby(['ID_EMPRESA', 'ID_MUNICIPIO'])['ACCESOS'].diff()
-
-#Calculo tasa de variación
-df_empresa_mpio_trim['tasa_variacion'] = df_empresa_mpio_trim['variacion_accesos'] / df_empresa_mpio_trim['ACCESOS']
-
-# Obtener el percentil 90 de variación de accesos
-percentil_90 = df_empresa_mpio_trim['tasa_variacion'].quantile(0.9)
-
-# Filtrar datos por encima del percentil 90
-# Obtener el percentil 75 de variación de accesos
-percentil_75 = df_empresa_mpio_trim['tasa_variacion'].quantile(0.75)
-
-# Filtrar datos por encima del percentil 75
-df_top_variacion = df_empresa_mpio_trim[df_empresa_mpio_trim['tasa_variacion'] >= percentil_75]
-
-# Crear período temporal
-df_top_variacion['Periodo'] = df_top_variacion['ANNO'].astype(str) + '-T' + df_top_variacion['TRIMESTRE'].astype(str)
-
-#Tasa de variación promedio por empresa
-df_empresa_mpio_trim['tasa_variacion_promedio'] = df_empresa_mpio_trim.groupby(['ID_EMPRESA', 'ID_MUNICIPIO'])['tasa_variacion'].transform('mean')
-# Crear la gráfica
-plt.figure(figsize=(15, 8))
-
-# Graficar solo los puntos que superan el percentil 75
-plt.scatter(df_top_variacion['Periodo'], 
-           df_top_variacion['tasa_variacion'],
-           c=df_top_variacion['ID_EMPRESA'].astype('category').cat.codes,
-           label=df_top_variacion['ID_EMPRESA'])
-
-plt.title('Puntos con Variaciones en el Top 25% por Empresa')
-plt.xlabel('Período (Año-Trimestre)')
-plt.ylabel('Variación de Accesos')
-plt.xticks(rotation=45)
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
-print(df_top_variacion.merge(df_empresa_mpio_trim, on=['ID_EMPRESA', 'ID_MUNICIPIO', 'ANNO', 'TRIMESTRE'], how='left'))
+#GUardo resumen
+df_empresa_mpio_trim.to_csv('data_ISPs/resumen_accesos_empresasxQxmpio.csv', index=False)
