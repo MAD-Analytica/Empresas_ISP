@@ -16,14 +16,6 @@ df = pd.read_csv(
 print(df.head())
 print(df.info())
 print(df.describe())
-print(df.isnull().sum())
-print(df.duplicated().sum())
-
-#Agrupar datos por empresa, municipio, año y trimestre
-#Qué tecnologías son relevantes?
-df['TECNOLOGIA'].value_counts()
-#Qué tipos de clientes hay?
-df['SEGMENTO'].value_counts()
 
 # Creo grupos de tecnologías
 mapeo_tecnologias = {
@@ -76,15 +68,6 @@ df['grupo_tecnologia'] = df['TECNOLOGIA'].map(mapeo_tecnologias)
 df['grupo_segmento'] = df['SEGMENTO'].map(mapeo_segmentos)
 df['grupo_estrato'] = df['SEGMENTO'].map(mapeo_estratos)
 
-# Mostrar las distribuciones de los nuevos grupos
-print("\nDistribución por grupo de segmento:")
-print(df['grupo_segmento'].value_counts())
-print("\nDistribución por grupo de estrato:")
-print(df['grupo_estrato'].value_counts())
-# Mostrar el conteo de accesos por grupo de tecnología
-print("\nDistribución de accesos por grupo de tecnología:")
-print(df['grupo_tecnologia'].value_counts())
-
 # Asegurar que ID_EMPRESA sea tratado como string
 df['ID_EMPRESA'] = df['ID_EMPRESA'].astype(str)
 # Convertir las comas a puntos y luego a numérico
@@ -98,7 +81,6 @@ df_grouped = df.groupby(['ID_EMPRESA', 'EMPRESA', 'ANNO', 'TRIMESTRE',
                             accesos=('ACCESOS', 'sum'),
                             velocidad_bajada=('VELOCIDAD_EFECTIVA_DOWNSTREAM', lambda x: x.mean(numeric_only=True)),
                             velocidad_subida=('VELOCIDAD_EFECTIVA_UPSTREAM', lambda x: x.mean(numeric_only=True))).reset_index()
-
 
 #Guardo esta base
 df_grouped.to_csv('data_ISPs/base_accesos_empresasxQxmpio.csv', index=False)
@@ -128,14 +110,6 @@ df_empresa_mpio_trim['tasa_variacion'] = (
     df_empresa_mpio_trim['variacion_accesos'] / 
     df_empresa_mpio_trim.groupby(['ID_EMPRESA', 'ID_MUNICIPIO'])['num_accesos'].shift(1)
 )
-
-df_empresa_mpio_trim.loc[df_empresa_mpio_trim['ID_EMPRESA']=='901448700', 
-                         ['ANNO','TRIMESTRE','EMPRESA','num_accesos',
-                          'variacion_accesos','tasa_variacion']]
-
-df_empresa_mpio_trim.loc[df_empresa_mpio_trim['EMPRESA'].str.contains('ISPA'), 
-                         ['ANNO','TRIMESTRE','EMPRESA','MUNICIPIO','num_accesos',
-                          'variacion_accesos','tasa_variacion']]
 
 #GUardo resumen
 df_empresa_mpio_trim.to_csv('data_ISPs/resumen_accesos_empresasxQxmpio.csv', index=False)
