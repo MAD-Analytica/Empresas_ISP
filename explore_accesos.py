@@ -27,9 +27,9 @@ df_estudio.loc[df_estudio['EMPRESA'].str.contains('Conectamos Soluciones', case=
                          ['ANNO','TRIMESTRE','EMPRESA','MUNICIPIO','DEPARTAMENTO','num_accesos',
                           'variacion_accesos','tasa_variacion']]
 
-# Filtro el último trimestre de 2024 y empresas con más de 100 usuarios
+# Filtro el último trimestre de 2024 y empresas con más de 1000 usuarios
 mask_ultimo_trim = (df_estudio['ANNO']==2024) & (df_estudio['TRIMESTRE']==4)
-mask_usuarios = df_estudio['num_accesos'] >= 1000
+mask_usuarios = df_estudio['num_accesos'] >= 25
 # Calculo el promedio de la tasa de variación para ese trimestre
 print("\nPromedio nacional de tasa de variación en Q4 2024 (empresas >1000 usuarios):")
 print(df_estudio.loc[mask_ultimo_trim & mask_usuarios, 'tasa_variacion'].mean())
@@ -44,6 +44,7 @@ print(df_estudio.loc[
     ['EMPRESA', 'MUNICIPIO', 'DEPARTAMENTO', 'num_accesos', 'variacion_accesos','tasa_variacion']
 ].sort_values('tasa_variacion', ascending=False))
 
+
 df_empresas_q4_2024 = df_estudio.loc[mask_ultimo_trim & mask_usuarios].groupby(
     ['ID_EMPRESA','EMPRESA']).agg(num_accesos=('num_accesos','sum'),
                                   variacion_accesos=('variacion_accesos','sum')).reset_index()
@@ -55,6 +56,40 @@ print(df_empresas_q4_2024.head(10))
 df_empresas_q4_2024.sort_values('variacion_accesos', ascending=False, inplace=True)
 print("Top 10 empresas mayor crecimiento en accesos Q4-2024")
 print(df_empresas_q4_2024.head(10))
+
+#*************************************************
+#Quiero calcular los 5 municipios más competidos: 
+#1. El líder tiene más del 60% de accesos del municipio
+#2. La densidad es mayor a 1.5: más de 1.5 ISPs (con más de 25 accesos) por cada 1000 accesos
+#3. El municipio tiene más de 1000 accesos
+
+# Filtramos para el último trimestre y empresas con más de 25 accesos
+df_municipios = df_estudio.loc[mask_ultimo_trim & mask_usuarios]
+
+# Calculamos métricas por municipio
+df_municipios_metrics = df_municipios.groupby(['DEPARTAMENTO','MUNICIPIO']).agg(
+    total_accesos=('num_accesos', 'sum'),
+    num_isps=('ID_EMPRESA', 'nunique'),
+    accesos_lider=('num_accesos', 'max')  # Calculamos directamente el máximo
+).reset_index()
+
+# Calculamos la densidad de ISPs (por cada 1000 accesos)
+df_municipios_metrics['densidad_isps'] = df_municipios_metrics['num_isps'] / (df_municipios_metrics['total_accesos']/1000)
+#Calculamos el porcentaje del líder en cada municipio
+df_municipios_metrics['porcentaje_lider'] = (df_municipios_metrics['accesos_lider'] / df_municipios_metrics['total_accesos']) * 100
+
+municipios_competidos = df_municipios_metrics.loc[(df_municipios_metrics['densidad_isps']>1.5) 
+                                                  & (df_municipios_metrics['porcentaje_lider']>60)]
+
+# Ordenamos por total de accesos
+municipios_competidos = municipios_competidos.sort_values(
+    ['total_accesos','densidad_isps','porcentaje_lider'], ascending=[False,False,False])
+
+print("\nTop 10 municipios más competidos:")
+print(municipios_competidos.head(10)[['DEPARTAMENTO','MUNICIPIO', 
+                                     'total_accesos','densidad_isps', 
+                                     'porcentaje_lider']])
+
 
 #**************************************************
                         #Graficos#
