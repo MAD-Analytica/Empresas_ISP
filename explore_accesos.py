@@ -90,6 +90,13 @@ print(municipios_competidos.head(10)[['DEPARTAMENTO','MUNICIPIO',
                                      'total_accesos','densidad_isps', 
                                      'porcentaje_lider']])
 
+# Veamos la distribución
+print("\nDistribución de municipios por número de accesos:")
+print(df_municipios_metrics['total_accesos'].describe())
+
+print("\nDistribución de municipios por número de ISPs:")
+print(df_municipios_metrics['num_isps'].describe())
+
 
 #**************************************************
                         #Graficos#
@@ -99,6 +106,72 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set_theme()
 
+print("Número de filas en df_municipios_metrics:", len(df_municipios_metrics))
+print("\nPrimeras filas:")
+print(df_municipios_metrics[['DEPARTAMENTO', 'MUNICIPIO', 'total_accesos', 'num_isps']].head())
+
+#*************************************************
+# Scatter accesos vs num ISPs por municipio
+# Calcular los límites para quitar 1% de los extremos
+limite_inferior = df_municipios_metrics['total_accesos'].quantile(0.01)
+limite_superior = df_municipios_metrics['total_accesos'].quantile(0.99)
+
+# Filtrar los datos
+df_municipios_filtrado = df_municipios_metrics[
+    (df_municipios_metrics['total_accesos'] >= limite_inferior) & 
+    (df_municipios_metrics['total_accesos'] <= limite_superior)
+]
+
+# Función para crear etiquetas cortas (3 letras)
+def crear_etiqueta_corta(municipio):
+    if len(municipio) <= 3:
+        return municipio
+    return municipio[:3].upper()
+
+# Aplicar la función para crear la columna de etiquetas
+df_municipios_filtrado['etiqueta'] = df_municipios_filtrado['MUNICIPIO'].apply(crear_etiqueta_corta)
+
+import numpy as np
+# Obtener colores únicos para cada departamento
+departamentos = df_municipios_filtrado['DEPARTAMENTO'].unique()
+colores = plt.cm.tab20(np.linspace(0, 1, len(departamentos)))
+color_dict = dict(zip(departamentos, colores))
+
+fig, ax= plt.subplots(figsize=(10, 8))
+# Crear scatter para cada departamento
+for depto in departamentos:
+    mask = df_municipios_filtrado['DEPARTAMENTO'] == depto
+    ax.scatter(df_municipios_filtrado.loc[mask, 'total_accesos'],
+              df_municipios_filtrado.loc[mask, 'num_isps'],
+              alpha=0.6,
+              label=depto,
+              color=color_dict[depto])
+
+# Agregar etiquetas de texto
+for i, row in df_municipios_filtrado.iterrows():
+    ax.annotate(row['etiqueta'],
+                (row['total_accesos'], row['num_isps']),
+                xytext=(5, 5),
+                textcoords='offset points',
+                fontsize=8)
+
+# Formatear el eje x
+ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
+
+# Personalizar el gráfico
+ax.set_title('Relación entre Número de Accesos y Número de ISPs por Municipio')
+ax.set_xlabel('Número de Accesos')
+ax.set_ylabel('Número de ISPs')
+ax.grid(True, linestyle='--', alpha=0.7)
+
+# Mover la leyenda fuera del gráfico
+ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0)
+
+plt.tight_layout()
+plt.show()
+
+#*************************************************
+# Grafico de barras de las 10 empresas con mayor crecimiento en accesos
 # Crear la figura con un tamaño específico
 plt.figure(figsize=(15, 8))
 # Crear el gráfico de barras
