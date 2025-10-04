@@ -21,6 +21,7 @@ Thumbs.db
 
 # IDEs y editores
 .idea/
+.cursor/
 .vscode/
 *.swp
 *.swo
@@ -49,6 +50,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*__init__.py
 
 # Virtual environments
 venv/
@@ -59,6 +61,7 @@ venv.bak/
 .env
 
 # Jupyter Notebook
+tests/
 .ipynb_checkpoints
 
 # pyenv
@@ -114,7 +117,7 @@ tmp/
 *.temp
 
 # Archivos de configuración sensibles
-config.ini
+config.py
 secrets.json
 .secrets
 credentials.json
