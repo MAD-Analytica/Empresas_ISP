@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import sys
 from datetime import datetime
+import os
 
 # Agregar el directorio padre al path para importar config
 sys.path.append(str(Path(__file__).parent.parent))
@@ -27,7 +28,7 @@ def build_params(limit=None, offset=0):
     """
     params = {
         "resource_id": config.RESOURCE_ID,
-        "limit": limit if limit else 10000,
+        "limit": limit if limit else 100,
         "offset": offset
     }
     
@@ -54,7 +55,7 @@ def extract_data_from_api(resource_id):
     
     all_data = []
     offset = 0
-    limit = 10000 
+    limit = 100
     
     while True:
         params = build_params(
@@ -140,7 +141,7 @@ def save_raw_data(df, filename=None):
         return
     
     filename = filename or config.RAW_FILENAME
-    filepath = config.RAW_DATA_DIR / filename
+    filepath = os.path.join(config.RAW_DATA_DIR, filename)
     
     print(f"\nGuardando datos en: {filepath}")
     df.to_csv(filepath, index=False, sep=';')

@@ -4,6 +4,7 @@ Script para transformar datos raw y generar bases procesadas
 import pandas as pd
 import sys
 from pathlib import Path
+import os
 
 sys.path.append(str(Path(__file__).parent.parent))
 import config
@@ -56,7 +57,7 @@ MAPEO_ESTRATOS = {
 
 def load_raw_data():
     """Carga datos raw desde CSV"""
-    filepath = config.RAW_DATA_DIR / config.RAW_FILENAME
+    filepath = os.path.join(config.RAW_DATA_DIR, config.RAW_FILENAME)
     
     print(f"Cargando datos de: {filepath}")
     
@@ -82,7 +83,8 @@ def apply_transformations(df):
     df['grupo_estrato'] = df['segmento'].map(MAPEO_ESTRATOS)
     
     # Convertir tipos
-    df['id_empresa'] = df['id_empresa'].astype(str)
+    for col in ['id_empresa', 'velocidad_efectiva_downstream', 'velocidad_efectiva_upstream']:
+        df[col] = df[col].astype(str)
     df['velocidad_efectiva_downstream'] = df['velocidad_efectiva_downstream'].str.replace(',', '.').astype(float)
     df['velocidad_efectiva_upstream'] = df['velocidad_efectiva_upstream'].str.replace(',', '.').astype(float)
     
@@ -105,7 +107,7 @@ def generate_base_detallada(df):
         velocidad_subida=('velocidad_efectiva_upstream', lambda x: x.mean(numeric_only=True))
     ).reset_index()
     
-    filepath = config.PROCESSED_DATA_DIR / config.OUTPUT_BASE_FILENAME
+    filepath = os.path.join(config.PROCESSED_DATA_DIR, config.OUTPUT_BASE_FILENAME)
     df_grouped.to_csv(filepath, index=False)
     print(f"Base detallada guardada: {filepath} ({len(df_grouped)} registros)")
     
@@ -144,7 +146,7 @@ def generate_resumen(df_grouped):
         df_resumen.groupby(['id_empresa', 'id_municipio'])['num_accesos'].shift(1)
     )
     
-    filepath = config.PROCESSED_DATA_DIR / config.OUTPUT_RESUMEN_FILENAME
+    filepath = os.path.join(config.PROCESSED_DATA_DIR, config.OUTPUT_RESUMEN_FILENAME)
     df_resumen.to_csv(filepath, index=False)
     print(f"Guardado: {filepath} ({len(df_resumen)} registros)")
     
@@ -176,7 +178,7 @@ def generate_empresa_trimestre(df_grouped):
         df_emp_trim.groupby('id_empresa')['num_accesos'].shift(1)
     )
     
-    filepath = config.PROCESSED_DATA_DIR / config.OUTPUT_EMPRESA_TRIM_FILENAME
+    filepath = os.path.join(config.PROCESSED_DATA_DIR, config.OUTPUT_EMPRESA_TRIM_FILENAME)
     df_emp_trim.to_csv(filepath, index=False)
     print(f"Guardado: {filepath} ({len(df_emp_trim)} registros)")
     
