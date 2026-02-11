@@ -89,7 +89,7 @@ def generate_leads_table(df):
         rep_legal = row.get('rues_representante_legal', '')
         if pd.notna(rep_legal) and rep_legal.strip():
             leads.append({
-                'id_empresa': id_empresa,
+                'nit': id_empresa,
                 'empresa': empresa,
                 'nombre': rep_legal.strip(),
                 'cedula': row.get('rues_cedula_rl', ''),
@@ -103,7 +103,7 @@ def generate_leads_table(df):
         responsible = row.get('whois_responsible', '')
         if pd.notna(responsible) and responsible.strip():
             leads.append({
-                'id_empresa': id_empresa,
+                'nit': id_empresa,
                 'empresa': empresa,
                 'nombre': responsible.strip(),
                 'cedula': '',
@@ -117,7 +117,7 @@ def generate_leads_table(df):
         contact = row.get('whois_contact_person', '')
         if pd.notna(contact) and contact.strip():
             leads.append({
-                'id_empresa': id_empresa,
+                'nit': id_empresa,
                 'empresa': empresa,
                 'nombre': contact.strip(),
                 'cedula': '',
