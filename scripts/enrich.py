@@ -6,8 +6,10 @@ import pandas as pd
 import time
 import re
 import sys
+import os
 from pathlib import Path
 from urllib.parse import quote
+from glob import glob
 from bs4 import BeautifulSoup
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -55,7 +57,52 @@ def get_rues_data(nit: str) -> dict:
         return {}
 
 
-def search_asn(empresa_name: str) -> str | None:
+def clean_empresa_name(empresa_name: str) -> tuple[str, str]:
+    """
+    Limpia el nombre de empresa quitando sufijos corporativos comunes.
+    
+    Args:
+        empresa_name: Nombre original de la empresa
+    
+    Returns:
+        tuple: (nombre_limpio, sufijos_encontrados)
+    """
+    name = empresa_name.strip().upper()
+    sufijos_encontrados = []
+    
+    # Patrones de sufijos a remover (orden importa - de más específico a menos)
+    sufijos_patterns = [
+        (r'\s+EN\s+LIQUIDACION\s*$', 'EN LIQUIDACION'),
+        (r'\s+ZOMAC\s*$', 'ZOMAC'),
+        (r'\s+BIC\s*$', 'BIC'),
+        (r'\s*E\.?\s*S\.?\s*P\.?\s*$', 'ESP'),           # E.S.P., ESP, E S P
+        (r'\s*S\.?\s*A\.?\s*S\.?\s*$', 'SAS'),           # S.A.S., SAS, S A S
+        (r'\s*S\.?\s*A\.?\s*$', 'SA'),                   # S.A., SA
+        (r'\s*LTDA\.?\s*$', 'LTDA'),                     # LTDA., LTDA
+        (r'\s*S\.?\s*C\.?\s*A\.?\s*$', 'SCA'),           # S.C.A.
+        (r'\s*&\s*CIA\.?\s*$', 'CIA'),                   # & CIA.
+        (r'\s*Y\s+CIA\.?\s*$', 'CIA'),                   # Y CIA.
+    ]
+    
+    # Aplicar múltiples veces porque puede haber combinaciones (ej: S.A. E.S.P.)
+    changed = True
+    while changed:
+        changed = False
+        for pattern, sufijo in sufijos_patterns:
+            new_name = re.sub(pattern, '', name, flags=re.IGNORECASE)
+            if new_name != name:
+                sufijos_encontrados.append(sufijo)
+                name = new_name.strip()
+                changed = True
+                break
+    
+    # Limpiar espacios y puntos sueltos al final
+    name = re.sub(r'[\s,.\-]+$', '', name).strip()
+    
+    return name, ' '.join(sufijos_encontrados)
+
+
+def search_asn(empresa_name: str) -> tuple[str | None, str]:
     """
     Busca el ASN de una empresa en whois.ipip.net.
     
@@ -63,10 +110,12 @@ def search_asn(empresa_name: str) -> str | None:
         empresa_name: Nombre de la empresa
     
     Returns:
-        ASN (ej: "AS273166") o None si no encuentra
+        tuple: (ASN o None, nombre_limpio usado para búsqueda)
     """
+    nombre_limpio, sufijos = clean_empresa_name(empresa_name)
+    
     try:
-        name_encoded = quote(empresa_name)
+        name_encoded = quote(nombre_limpio)
         url = f"https://whois.ipip.net/search/{name_encoded}"
         
         response = requests.get(url, headers=HEADERS, timeout=30)
@@ -79,13 +128,13 @@ def search_asn(empresa_name: str) -> str | None:
         if asn_links:
             href = asn_links[0].get('href')
             asn = href.lstrip('/')
-            return asn
+            return asn, nombre_limpio
         
-        return None
+        return None, nombre_limpio
         
     except Exception as e:
-        print(f"   Error buscando ASN para '{empresa_name}': {e}")
-        return None
+        print(f"   Error buscando ASN para '{nombre_limpio}': {e}")
+        return None, nombre_limpio
 
 
 def get_whois_data(asn: str) -> dict:
@@ -203,7 +252,8 @@ def enrich_empresas(df_empresas: pd.DataFrame) -> pd.DataFrame:
         record.update(rues_data)
         time.sleep(0.2)
         
-        asn = search_asn(empresa)
+        asn, nombre_limpio = search_asn(empresa)
+        record['empresa_busqueda'] = nombre_limpio  # Nombre usado para búsqueda ASN
         
         if asn:
             time.sleep(0.5)
@@ -230,19 +280,83 @@ def enrich_empresas(df_empresas: pd.DataFrame) -> pd.DataFrame:
     return df_enriched
 
 
-if __name__ == "__main__":
+def load_empresas_grandes(min_accesos=10000):
+    """Carga emp-trim más reciente y filtra empresas >= min_accesos"""
+    pattern = os.path.join(config.PROCESSED_DATA_DIR, "accesos-emp-trim-*.csv")
+    files = glob(pattern)
+    
+    if not files:
+        raise FileNotFoundError(f"No se encontró archivo emp-trim en {config.PROCESSED_DATA_DIR}")
+    
+    df = pd.read_csv(max(files, key=os.path.getmtime))
+    
+    df_max = df.groupby(['id_empresa', 'empresa']).agg(
+        max_accesos=('num_accesos', 'max')
+    ).reset_index()
+    
+    return df_max[df_max['max_accesos'] >= min_accesos].sort_values('max_accesos', ascending=False)
+
+
+def run(min_accesos=10000):
+    """Ejecuta el enriquecimiento completo de empresas >= min_accesos"""
+    df_empresas = load_empresas_grandes(min_accesos=min_accesos)
+    
+    if len(df_empresas) == 0:
+        print("No hay empresas que cumplan el criterio")
+        return None
+    
+    print(f"Enriqueciendo {len(df_empresas)} empresas...")
+    df_enriched = enrich_empresas(df_empresas)
+    
+    filepath = os.path.join(config.PROCESSED_DATA_DIR, config.OUTPUT_EMPRESAS_FILENAME)
+    df_enriched.to_csv(filepath, index=False)
+    print(f"Guardado: {filepath}")
+    
+    return df_enriched
+
+
+def test():
+    """Ejecuta tests de las funciones"""
     print("=== Test de enriquecimiento ===\n")
     
-    print("1. Test RUES (NIT ejemplo):")
+    print("1. Test limpieza de nombres:")
+    tests = [
+        "UNE EPM TELECOMUNICACIONES S.A.",
+        "COLOMBIA TELECOMUNICACIONES S.A. E.S.P.",
+        "FIBRAZO S.A.S.",
+        "EDATEL S.A. EN LIQUIDACION",
+        "EMPRESA MUNICIPAL DE CALI EICE E.S.P."
+    ]
+    for t in tests:
+        limpio, sufijos = clean_empresa_name(t)
+        print(f"   '{t}' -> '{limpio}' (sufijos: {sufijos})")
+    
+    print("\n2. Test RUES (NIT ejemplo):")
     rues = get_rues_data("901941232")
     print(f"   {rues}\n")
     
-    print("2. Test búsqueda ASN:")
-    asn = search_asn("GIGANAV CONNECTIONS")
+    print("3. Test búsqueda ASN:")
+    asn, nombre = search_asn("GIGANAV CONNECTIONS S.A.S.")
+    print(f"   Nombre limpio: {nombre}")
     print(f"   ASN encontrado: {asn}\n")
     
     if asn:
-        print("3. Test WHOIS:")
+        print("4. Test WHOIS:")
         whois = get_whois_data(asn)
         for k, v in whois.items():
             print(f"   {k}: {v}")
+
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Enriquecer empresas con RUES y WHOIS')
+    parser.add_argument('--test', action='store_true', help='Ejecutar tests')
+    parser.add_argument('--min-accesos', type=int, default=10000, help='Mínimo de accesos (default: 10000)')
+    
+    args = parser.parse_args()
+    
+    if args.test:
+        test()
+    else:
+        run(min_accesos=args.min_accesos)
