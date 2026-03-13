@@ -8,41 +8,38 @@ import json
 from pathlib import Path
 import sys
 from datetime import datetime
-import os
 
 # Agregar el directorio padre al path para importar config
 sys.path.append(str(Path(__file__).parent.parent))
 import config
 
 
-def build_params(limit=100, offset=0, anno_filter="2025"):
+def build_params(limit=None, offset=0):
     """
-    Construye parámetros para la API DKAN Datastore con filtro por año
+    Construye los parámetros para la API DKAN Datastore
     
     Args:
         limit: Límite de registros por petición
         offset: Offset para paginación
-        anno_filter: Año a filtrar
     
     Returns:
-        dict: Parámetros para la petición
+        dict: Parámetros para la petición GET
     """
     params = {
         "resource_id": config.RESOURCE_ID,
-        "filters": json.dumps({"anno": anno_filter}),
-        "limit": limit,
+        "limit": limit if limit else 10000,
         "offset": offset
     }
+    
     return params
 
 
-def extract_data_from_api(resource_id, anno_filter="2025"):
+def extract_data_from_api(resource_id):
     """
     Extrae datos de la API DKAN de postdata.gov.co
     
     Args:
         resource_id: ID del recurso en postdata.gov.co
-        anno_filter: Año a filtrar (default: 2025)
     
     Returns:
         pd.DataFrame: DataFrame con los datos extraídos
@@ -52,14 +49,20 @@ def extract_data_from_api(resource_id, anno_filter="2025"):
     
     url = f"{config.API_BASE_URL}/search.json"
     
-    print(f"Extrayendo datos desde la API (año: {anno_filter})...")
+    print(f"Extrayendo datos desde la API...")
+    print(f"URL: {url}")
     
     all_data = []
     offset = 0
-    limit = 100
+    limit = 10000 
     
     while True:
-        params = build_params(limit=limit, offset=offset, anno_filter=anno_filter)
+        params = build_params(
+            limit=limit,
+            offset=offset
+        )
+        
+        print(f"Solicitando registros {offset} - {offset + limit}...")
         
         try:
             response = requests.get(url, params=params, timeout=60)
@@ -76,17 +79,22 @@ def extract_data_from_api(resource_id, anno_filter="2025"):
             records = result.get('records', [])
             
             if not records:
+                print(f"No hay más datos. Total registros obtenidos: {len(all_data)}")
                 break
             
             all_data.extend(records)
             
-            # Mostrar progreso cada 1000 registros
-            if len(all_data) % 1000 == 0:
-                print(f"   {len(all_data)} registros...")
+            print(f"   Obtenidos {len(records)} registros (Total acumulado: {len(all_data)})")
             
             # Verificar si hay más datos
             total_records = result.get('total', len(all_data))
-            if len(all_data) >= total_records or len(records) < limit:
+            if len(all_data) >= total_records:
+                print(f"Extracción completa. Total registros: {len(all_data)}")
+                break
+            
+            # Si obtuvimos menos registros que el límite, ya no hay más datos
+            if len(records) < limit:
+                print(f"Extracción completa. Total registros: {len(all_data)}")
                 break
             
             offset += limit
@@ -107,9 +115,8 @@ def extract_data_from_api(resource_id, anno_filter="2025"):
             print(f"Respuesta: {response.text[:500]}")
             raise
     
-    print(f"Extracción completa: {len(all_data)} registros")
-    
     if not all_data:
+        print("No se obtuvieron datos")
         return pd.DataFrame()
     
     # Convertir a DataFrame
@@ -133,7 +140,7 @@ def save_raw_data(df, filename=None):
         return
     
     filename = filename or config.RAW_FILENAME
-    filepath = os.path.join(config.RAW_DATA_DIR, filename)
+    filepath = config.RAW_DATA_DIR / filename
     
     print(f"\nGuardando datos en: {filepath}")
     df.to_csv(filepath, index=False, sep=';')

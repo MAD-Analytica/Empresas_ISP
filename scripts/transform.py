@@ -4,11 +4,9 @@ Script para transformar datos raw y generar bases procesadas
 import pandas as pd
 import sys
 from pathlib import Path
-import os
 
 sys.path.append(str(Path(__file__).parent.parent))
 import config
-from scripts import enrich
 
 
 # Mapeos de clasificación
@@ -58,7 +56,7 @@ MAPEO_ESTRATOS = {
 
 def load_raw_data():
     """Carga datos raw desde CSV"""
-    filepath = os.path.join(config.RAW_DATA_DIR, config.RAW_FILENAME)
+    filepath = config.RAW_DATA_DIR / config.RAW_FILENAME
     
     print(f"Cargando datos de: {filepath}")
     
@@ -84,10 +82,9 @@ def apply_transformations(df):
     df['grupo_estrato'] = df['segmento'].map(MAPEO_ESTRATOS)
     
     # Convertir tipos
-    for col in ['id_empresa', 'velocidad_efectiva_downstream', 'velocidad_efectiva_upstream']:
-        df[col] = df[col].astype(str)
-    df['velocidad_efectiva_downstream'] = df['velocidad_efectiva_downstream'].str.replace(',', '.').astype(float)
-    df['velocidad_efectiva_upstream'] = df['velocidad_efectiva_upstream'].str.replace(',', '.').astype(float)
+    df['id_empresa'] = df['id_empresa'].astype(str)
+    df['velocidad_efectiva_downstream'] = df['velocidad_efectiva_downstream'].astype(str).replace(',', '.').astype(float)
+    df['velocidad_efectiva_upstream'] = df['velocidad_efectiva_upstream'].astype(str).replace(',', '.').astype(float)
     
     print("Transformaciones aplicadas")
     return df
@@ -104,11 +101,11 @@ def generate_base_detallada(df):
         'grupo_segmento', 'grupo_estrato', 'grupo_tecnologia'
     ]).agg(
         accesos=('accesos', 'sum'),
-        velocidad_bajada=('velocidad_efectiva_downstream', lambda x: x.mean(numeric_only=True)),
-        velocidad_subida=('velocidad_efectiva_upstream', lambda x: x.mean(numeric_only=True))
+        velocidad_bajada=('velocidad_efectiva_downstream', 'mean'),
+        velocidad_subida=('velocidad_efectiva_upstream', 'mean')
     ).reset_index()
     
-    filepath = os.path.join(config.PROCESSED_DATA_DIR, config.OUTPUT_BASE_FILENAME)
+    filepath = config.PROCESSED_DATA_DIR / config.OUTPUT_BASE_FILENAME
     df_grouped.to_csv(filepath, index=False)
     print(f"Base detallada guardada: {filepath} ({len(df_grouped)} registros)")
     
@@ -147,7 +144,7 @@ def generate_resumen(df_grouped):
         df_resumen.groupby(['id_empresa', 'id_municipio'])['num_accesos'].shift(1)
     )
     
-    filepath = os.path.join(config.PROCESSED_DATA_DIR, config.OUTPUT_RESUMEN_FILENAME)
+    filepath = config.PROCESSED_DATA_DIR / config.OUTPUT_RESUMEN_FILENAME
     df_resumen.to_csv(filepath, index=False)
     print(f"Guardado: {filepath} ({len(df_resumen)} registros)")
     
@@ -179,36 +176,11 @@ def generate_empresa_trimestre(df_grouped):
         df_emp_trim.groupby('id_empresa')['num_accesos'].shift(1)
     )
     
-    filepath = os.path.join(config.PROCESSED_DATA_DIR, config.OUTPUT_EMPRESA_TRIM_FILENAME)
+    filepath = config.PROCESSED_DATA_DIR / config.OUTPUT_EMPRESA_TRIM_FILENAME
     df_emp_trim.to_csv(filepath, index=False)
     print(f"Guardado: {filepath} ({len(df_emp_trim)} registros)")
     
     return df_emp_trim
-
-
-def generate_empresas_grandes(df_emp_trim, min_accesos=10000):
-    """
-    Filtra empresas que hayan tenido más de min_accesos en algún trimestre.
-    
-    Args:
-        df_emp_trim: DataFrame de empresa/trimestre (salida de generate_empresa_trimestre)
-        min_accesos: Mínimo de accesos para considerar una empresa "grande"
-    
-    Returns:
-        DataFrame con empresas únicas que superan el umbral
-    """
-    print(f"\nFiltrando empresas con >= {min_accesos:,} accesos...")
-    
-    df_max = df_emp_trim.groupby(['id_empresa', 'empresa']).agg(
-        max_accesos=('num_accesos', 'max')
-    ).reset_index()
-    
-    df_grandes = df_max[df_max['max_accesos'] >= min_accesos].copy()
-    df_grandes = df_grandes.sort_values('max_accesos', ascending=False)
-    
-    print(f"Empresas grandes encontradas: {len(df_grandes)}")
-    
-    return df_grandes
 
 
 def run():
@@ -225,21 +197,6 @@ def run():
         df_resumen = generate_resumen(df_base)
         df_emp_trim = generate_empresa_trimestre(df_base)
         
-        # Filtrar empresas grandes y enriquecer
-        df_empresas_grandes = generate_empresas_grandes(df_emp_trim)
-        
-        if len(df_empresas_grandes) > 0:
-            print("\n" + "=" * 60)
-            print("ENRIQUECIMIENTO DE EMPRESAS")
-            print("=" * 60)
-            
-            df_empresas_enriched = enrich.enrich_empresas(df_empresas_grandes)
-            
-            # Guardar empresas enriquecidas
-            filepath_empresas = os.path.join(config.PROCESSED_DATA_DIR, config.OUTPUT_EMPRESAS_FILENAME)
-            df_empresas_enriched.to_csv(filepath_empresas, index=False)
-            print(f"\nGuardado: {filepath_empresas} ({len(df_empresas_enriched)} empresas)")
-        
         print("\n" + "=" * 60)
         print("TRANSFORMACIÓN COMPLETADA")
         print("=" * 60)
@@ -247,7 +204,6 @@ def run():
         print(f"  - {config.OUTPUT_BASE_FILENAME}")
         print(f"  - {config.OUTPUT_RESUMEN_FILENAME}")
         print(f"  - {config.OUTPUT_EMPRESA_TRIM_FILENAME}")
-        print(f"  - {config.OUTPUT_EMPRESAS_FILENAME}")
         
     except Exception as e:
         print("\n" + "=" * 60)
