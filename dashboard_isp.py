@@ -119,10 +119,75 @@ def render_metrics(all_df: pd.DataFrame, filtered_df: pd.DataFrame, selected_cou
     num_empresas = int(filtered_df["id_empresa"].nunique()) if len(filtered_df) else 0
     num_leads = count_leads(leads_df, filtered_df)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Empresas", f"{num_empresas:,}")
     c2.metric("Usuarios", f"{int(total_users_base):,}")
     c3.metric("Leads identificados", f"{num_leads:,}")
+
+
+def render_range_summary_table(all_df: pd.DataFrame, selected_countries: list[str]) -> None:
+    """
+    Muestra tabla de resumen por rangos de usuarios aplicando filtro de pais.
+    """
+    base = all_df.copy()
+    if selected_countries:
+        base = base.loc[base["pais"].isin(selected_countries)].copy()
+
+    if base.empty:
+        st.info("Sin datos para tabla resumen por rango.")
+        return
+
+    # Unico por empresa/pais para evitar duplicados.
+    base = (
+        base.sort_values("usuarios", ascending=False)
+        .drop_duplicates(subset=["pais", "id_empresa"], keep="first")
+        .copy()
+    )
+
+    labels = ["0 a 1000", "1001 a 5000", "5001 a 10000", "10001 a 100000", "100000+"]
+    bins = [-0.001, 1000, 5000, 10000, 100000, float("inf")]
+    base["Rango"] = pd.cut(
+        base["usuarios"],
+        bins=bins,
+        labels=labels,
+        include_lowest=True,
+        right=True,
+    )
+
+    summary = (
+        base.groupby("Rango", as_index=False)
+        .agg(
+            **{
+                "Num. ISPs": ("id_empresa", "nunique"),
+                "Num. usuarios": ("usuarios", "sum"),
+            }
+        )
+    )
+    summary["Rango"] = pd.Categorical(summary["Rango"], categories=labels, ordered=True)
+    summary = summary.sort_values("Rango").fillna({"Num. ISPs": 0, "Num. usuarios": 0})
+
+    total_users = float(summary["Num. usuarios"].sum()) if len(summary) else 0.0
+    summary["Market share"] = (
+        summary["Num. usuarios"] / total_users * 100 if total_users > 0 else 0.0
+    )
+
+    total_row = pd.DataFrame(
+        {
+            "Rango": ["Total"],
+            "Num. ISPs": [int(summary["Num. ISPs"].sum())],
+            "Num. usuarios": [float(summary["Num. usuarios"].sum())],
+            "Market share": [100.0 if total_users > 0 else 0.0],
+        }
+    )
+
+    table = pd.concat([summary, total_row], ignore_index=True)
+    table["Num. ISPs"] = table["Num. ISPs"].astype(int)
+    table_display = table.copy()
+    table_display["Num. usuarios"] = table_display["Num. usuarios"].map(lambda x: f"{int(round(x)):,}")
+    table_display["Market share"] = table_display["Market share"].map(lambda x: f"{x:.1f}%")
+
+    st.subheader("Resumen por rango de usuarios")
+    st.dataframe(table_display, use_container_width=True, hide_index=True)
 
 
 def render_charts(filtered_df: pd.DataFrame) -> None:
@@ -186,6 +251,7 @@ def main() -> None:
     filtered, selected_countries, _, _ = build_filters(empresas)
 
     render_metrics(empresas, filtered, selected_countries, leads_raw)
+    render_range_summary_table(empresas, selected_countries)
     st.divider()
     render_charts(filtered)
     st.divider()
