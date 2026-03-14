@@ -1,0 +1,28 @@
+# Excluir peso innecesario del contexto de build en Cloud Build
+.git
+.gitignore
+.cursor
+.idea
+.vscode
+.venv
+venv
+env
+
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+tests/
+*.ipynb
+.ipynb_checkpoints
+
+# Para Cloud Run solo requerimos procesados/finals (no raw)
+data_ISPs/raw/
+
+# Temporales
+.DS_Store
+*.log
+tmp/
+temp/
