@@ -17,7 +17,7 @@ import config
 SOURCE_TAG = "postdata_dkan"
 
 
-def build_params(limit: int = 10000, offset: int = 0) -> dict:
+def build_params(limit: int = 100, offset: int = 0) -> dict:
     return {
         "resource_id": config.RESOURCE_ID,
         "limit": limit,
@@ -25,7 +25,7 @@ def build_params(limit: int = 10000, offset: int = 0) -> dict:
     }
 
 
-def extract_data_from_api(limit: int = 10000, max_pages: int | None = None) -> pd.DataFrame:
+def extract_data_from_api(limit: int = 100, max_pages: int | None = None) -> pd.DataFrame:
     """Extrae datos crudos de Colombia con paginacion."""
     if not config.RESOURCE_ID:
         raise ValueError("RESOURCE_ID no esta configurado en config.py")
@@ -113,7 +113,7 @@ def save_outputs(df_raw: pd.DataFrame, df_canonical: pd.DataFrame) -> None:
     print(f"Canonico Colombia guardado: {canonical_path}")
 
 
-def run(limit: int = 10000, max_pages: int | None = None, save: bool = True) -> pd.DataFrame:
+def run(limit: int = 100, max_pages: int | None = None, save: bool = True) -> pd.DataFrame:
     df_raw = extract_data_from_api(limit=limit, max_pages=max_pages)
     if df_raw.empty:
         print("No se obtuvieron datos Colombia")

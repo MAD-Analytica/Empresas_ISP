@@ -27,9 +27,55 @@ def _find_column(columns_norm: dict[str, str], candidates: list[str]) -> str | N
 
 def _read_file(path: Path) -> pd.DataFrame:
     if path.suffix.lower() in {".xlsx", ".xls"}:
-        return pd.read_excel(path)
+        # Los reportes ARCOTEL traen encabezado visual y la tabla real
+        # suele iniciar varias filas mas abajo en la hoja "D Prestador".
+        raw = pd.read_excel(path, sheet_name="D Prestador", header=None)
+        raw = raw.dropna(axis=1, how="all")
+
+        header_idx = None
+        for idx in raw.index[:60]:
+            values = [normalize_colname(v) for v in raw.loc[idx].tolist() if pd.notna(v)]
+            has_prestadores = any(value == "prestadores" or "prestadores" in value for value in values)
+            has_no = any(value == "no" for value in values)
+            has_month_or_total = any(
+                bool(re.search(r"20\d{2}", value)) or "cuentas_de_internet" in value for value in values
+            )
+            if has_prestadores and has_no and has_month_or_total:
+                header_idx = idx
+                break
+
+        if header_idx is None:
+            raise ValueError(
+                f"No se encontro encabezado de tabla en hoja 'D Prestador' para {path.name}."
+            )
+
+        headers = []
+        seen = {}
+        for col_idx, value in enumerate(raw.loc[header_idx].tolist()):
+            if pd.isna(value):
+                header = f"col_{col_idx}"
+            else:
+                header = str(value).strip()
+            count = seen.get(header, 0)
+            if count:
+                header = f"{header}_{count}"
+            seen[str(value).strip() if pd.notna(value) else f'col_{col_idx}'] = count + 1
+            headers.append(header)
+
+        df = raw.loc[header_idx + 1 :].copy()
+        df.columns = headers
+        df = df.dropna(how="all").reset_index(drop=True)
+
+        # Limpiar fila de total si viene al final.
+        cols_norm = {normalize_colname(c): c for c in df.columns}
+        operador_col = _find_column(cols_norm, ["prestador", "empresa", "operador", "proveedor"])
+        if operador_col:
+            mask_total = df[operador_col].astype(str).str.contains("total", case=False, na=False)
+            df = df.loc[~mask_total].copy()
+
+        return df
     if path.suffix.lower() == ".csv":
-        return pd.read_csv(path)
+        return pd.read_csv(path, sep=";", encoding="latin1")
     raise ValueError(f"Formato no soportado para Ecuador: {path}")
 
 
@@ -86,6 +132,7 @@ def _infer_year_quarter(df: pd.DataFrame, source_name: str) -> tuple[pd.Series, 
 def normalize_to_canonical(df_raw: pd.DataFrame, source_name: str) -> pd.DataFrame:
     cols_norm = {normalize_colname(c): c for c in df_raw.columns}
 
+    no_col = _find_column(cols_norm, ["no"])
     operador_col = _find_column(cols_norm, ["empresa", "operador", "prestador", "proveedor"])
     accesos_col = _find_column(cols_norm, ["acceso", "abonado", "conexion", "cuenta", "suscriptor"])
     id_col = _find_column(cols_norm, ["id", "ruc", "identificacion"])
@@ -98,13 +145,31 @@ def normalize_to_canonical(df_raw: pd.DataFrame, source_name: str) -> pd.DataFra
     anno, trimestre = _infer_year_quarter(df_raw, source_name=source_name)
 
     df = df_raw.copy()
+    # Regla de negocio validada: en ARCOTEL D Prestador solo filas con "No." numerico.
+    if no_col:
+        df = df.loc[pd.to_numeric(df[no_col], errors="coerce").notna()].copy()
+
     df["__operador"] = df[operador_col].astype(str).str.strip()
     df["__id_operador"] = (
         df[id_col].astype(str).str.strip() if id_col else df["__operador"].str.upper().str.replace(r"\s+", "_", regex=True)
     )
     df["__anno"] = anno
     df["__trimestre"] = trimestre
-    df["__num_accesos"] = pd.to_numeric(df[accesos_col], errors="coerce").fillna(0)
+
+    # Priorizar columnas mensuales del trimestre (suelen venir como fechas en el header).
+    monthly_cols = []
+    for column in df.columns:
+        is_timestamp = isinstance(column, pd.Timestamp)
+        looks_date = bool(re.search(r"20\d{2}-\d{2}-\d{2}", str(column)))
+        looks_month_short = bool(re.search(r"\b(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[-_ ]?\d{2,4}\b", str(column).lower()))
+        if is_timestamp or looks_date or looks_month_short:
+            monthly_cols.append(column)
+
+    if monthly_cols:
+        month_values = df[monthly_cols].apply(pd.to_numeric, errors="coerce")
+        df["__num_accesos"] = month_values.max(axis=1).fillna(0)
+    else:
+        df["__num_accesos"] = pd.to_numeric(df[accesos_col], errors="coerce").fillna(0)
 
     grouped = (
         df.groupby(["__id_operador", "__operador", "__anno", "__trimestre"], as_index=False)["__num_accesos"]

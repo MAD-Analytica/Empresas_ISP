@@ -26,9 +26,24 @@ def _find_column(columns_norm: dict[str, str], candidates: list[str]) -> str | N
 
 def _read_file(path: Path) -> pd.DataFrame:
     if path.suffix.lower() in {".xlsx", ".xls"}:
-        return pd.read_excel(path)
+        return pd.read_excel(path, header=3)
     if path.suffix.lower() == ".csv":
-        return pd.read_csv(path)
+        attempts = [
+            {"sep": ";", "encoding": "latin1"},
+            {"sep": ";", "encoding": "utf-8"},
+            {"encoding": "latin1"},
+            {},
+        ]
+        for kwargs in attempts:
+            try:
+                df = pd.read_csv(path, **kwargs)
+                # Si queda una sola columna con ';', se parseo mal.
+                if len(df.columns) == 1 and ";" in str(df.columns[0]):
+                    continue
+                return df
+            except Exception:
+                continue
+        raise ValueError(f"No se pudo leer CSV de Peru con separadores/encodings comunes: {path}")
     raise ValueError(f"Formato no soportado para Peru: {path}")
 
 
@@ -37,7 +52,8 @@ def _parse_period(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
     year_col = _find_column(cols_norm, ["ano", "anio", "year"])
     quarter_col = _find_column(cols_norm, ["trimestre", "quarter"])
     month_col = _find_column(cols_norm, ["mes", "month"])
-    date_col = _find_column(cols_norm, ["fecha", "periodo"])
+    period_col = _find_column(cols_norm, ["periodo"])
+    date_col = _find_column(cols_norm, ["fecha", "date"])
 
     if year_col and quarter_col:
         return pd.to_numeric(df[year_col], errors="coerce"), pd.to_numeric(df[quarter_col], errors="coerce")
@@ -49,8 +65,36 @@ def _parse_period(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
         )
         return anno, trimestre
 
+    if month_col:
+        month_values = df[month_col]
+        dates = pd.to_datetime(month_values, errors="coerce")
+        if dates.notna().any():
+            return dates.dt.year.astype("Int64"), dates.dt.quarter.astype("Int64")
+
+        month_num = pd.to_numeric(month_values, errors="coerce")
+        if month_num.notna().any() and year_col:
+            anno = pd.to_numeric(df[year_col], errors="coerce")
+            trimestre = month_num.apply(
+                lambda m: month_to_quarter(m) if pd.notna(m) and 1 <= int(m) <= 12 else pd.NA
+            )
+            return anno, trimestre
+
+    if period_col:
+        period = pd.to_numeric(df[period_col], errors="coerce")
+        anno = (period // 100).astype("Int64")
+        mes = (period % 100).astype("Int64")
+        trimestre = mes.apply(
+            lambda m: month_to_quarter(int(m)) if pd.notna(m) and 1 <= int(m) <= 12 else pd.NA
+        )
+        if trimestre.notna().any():
+            return anno, trimestre
+
     if date_col:
-        dates = pd.to_datetime(df[date_col], errors="coerce")
+        raw_dates = df[date_col].astype(str)
+        # Caso comun en Peru: YYYYMMDD (entero)
+        dates = pd.to_datetime(raw_dates, format="%Y%m%d", errors="coerce")
+        if not dates.notna().any():
+            dates = pd.to_datetime(df[date_col], errors="coerce")
         return dates.dt.year, dates.dt.quarter
 
     raise ValueError(
