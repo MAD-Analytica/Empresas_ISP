@@ -1,0 +1,27 @@
+.git
+.gitignore
+.cursor
+.idea
+.vscode
+.venv
+venv
+env
+
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+tests/
+*.ipynb
+.ipynb_checkpoints
+
+# No necesitamos raw para dashboard en Cloud Run
+data_ISPs/raw/
+
+# Archivos temporales/sistema
+.DS_Store
+*.log
+tmp/
+temp/
